@@ -37,3 +37,8 @@ strict.
 
 The MCP boundary never sees agent text. Claim reconciliation therefore needs
 framework middleware and works on fewer frameworks than the rest of the system.
+
+Midwire wraps an upstream MCP server rather than hooking a protocol
+interceptor. SEP-1763 would be the cleaner hook and does not exist — it has
+been Draft since November 2025 and the 2026-07-28 spec shipped without it.
+Secondary sources describe it as production-ready. They are wrong.
