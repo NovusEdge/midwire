@@ -3,13 +3,6 @@
 Closed-loop agency. Measures what an agent actually changed in the world and
 feeds that back before the agent continues.
 
-## Commands
-
-```
-just verify             # scripted agent runs against the mock world
-just test
-```
-
 ## Constraints that do not bend
 
 **No model judges correctness.** The model does one job: extracting asserted
@@ -20,37 +13,27 @@ distribution. A model judging correctness would put the sensor back inside the
 loop it exists to close.
 
 **Fail open by default.** A verifier that breaks an agent when the probe
-endpoint is down is worse than the bug it prevents. Probe timeout at 500ms,
-log, pass, increment a counter. Fail-closed is opt-in per tool, for writes that
-move money or mutate durable state.
+endpoint is down is worse than the bug it prevents. Fail-closed is opt-in per
+tool, for writes that move money or mutate durable state.
 
 **Annotate before blocking.** False positives are what get this class of tool
 uninstalled. Claim extraction ships in annotate-only mode.
 
-**MCP interceptor is the primary hook.** SEP-1763 response phase: mutators run
-in sequence, validators run in parallel and block on `error` severity.
-Framework middleware (LangGraph `after_model`, Pydantic AI hooks) covers claim
-reconciliation, which the MCP boundary cannot see.
+**Deterministic half ships first.** Ledger, dedupe, read-back probes, policy.
+Claim extraction stays out until probes prove they catch something real. If
+probes catch nothing, the model half will not save it.
 
-## Weekend scope
+## Things that look arbitrary and are not
 
-Deterministic half only: ledger, dedupe, read-back probes, policy, the MCP
-interceptor, and the mock world with measured numbers.
+Two of the five test scenarios — an action claimed with no call, and a
+misreported object — are expected to fail in the weekend build. They need claim
+extraction. They are in deliberately, to measure what the deterministic half
+misses. A future session reading two red scenarios as a bug will "fix" them by
+adding the model back into the correctness path.
 
-Claim extraction and reconciliation stay out until the deterministic half
-proves it catches something real. If probes catch nothing, the model half will
-not save it.
+Probe read-back can be fooled by caching. A read served from a cache written by
+the same request confirms nothing, so consistency is per-tool and defaults to
+strict.
 
-## Testing
-
-The mock world is a service over SQLite with an injectable fault mode, plus
-scripted runs where ground truth is known. Five scenarios: claims without a
-call, a dropped write behind a 200, a duplicated write, a misreported object,
-and the clean case that must not fire.
-
-Scenarios 1 and 4 need claim extraction and are expected to fail in the
-weekend build. They are in deliberately, to measure what the deterministic half
-misses.
-
-Publish the failures next to the successes. Report claim-extraction numbers
-separately from the deterministic checks.
+The MCP boundary never sees agent text. Claim reconciliation therefore needs
+framework middleware and works on fewer frameworks than the rest of the system.

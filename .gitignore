@@ -11,3 +11,6 @@ wheels/
 
 # Superpowers working files
 docs/superpowers/
+
+# Secrets
+.env
