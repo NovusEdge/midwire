@@ -48,6 +48,10 @@ Midwire keeps a ledger of every tool call, fires a read-back probe after each
 write, and detects duplicate writes. v1 catches the second and third failures
 above. The first needs claim extraction and is not built.
 
+## Deploy
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/midwire)
+
 ## Use it
 
 Point your agent at midwire instead of the server it currently uses. Midwire
