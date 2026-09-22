@@ -7,6 +7,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev
 
+# README.md is required: pyproject declares it, and hatchling validates it
+# when the project itself is installed.
+COPY README.md ./
 COPY src ./src
 RUN uv sync --frozen --no-dev
 
