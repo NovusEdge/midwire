@@ -45,38 +45,88 @@ Three failures leave the loop open:
 - The same non-idempotent write is emitted twice
 
 Midwire keeps a ledger of every tool call, fires a read-back probe after each
-write, detects duplicate writes, and reconciles what the agent claimed against
-what it actually called.
+write, and detects duplicate writes. v1 catches the second and third failures
+above. The first needs claim extraction and is not built.
+
+## Use it
+
+Point your agent at midwire instead of the server it currently uses. Midwire
+registers that server's tools as its own and forwards every call.
+
+```
+your agent  ->  midwire/mcp  ->  your MCP server
+```
+
+Findings ride back in `ToolResult.meta.midwire`. A status page at `/` shows
+what the agent did and what read back wrong.
+
+## Configure
+
+Only the upstream URL is required. With nothing else set, the ledger and
+duplicate detection still work.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MIDWIRE_UPSTREAM_URL` | required | the MCP server to wrap |
+| `MIDWIRE_UPSTREAM_HEADERS` | `{}` | auth forwarded upstream, JSON |
+| `MIDWIRE_MODE` | `annotate` | `annotate` or `block` |
+| `MIDWIRE_PROBE_TIMEOUT_MS` | `500` | past this, fail open and count it |
+| `MIDWIRE_FAIL_CLOSED_TOOLS` | empty | tools that block instead, comma separated |
+| `MIDWIRE_PROBES` | `[]` | write-to-read tool pairs, JSON |
+| `MIDWIRE_ADMIN_TOKEN` | generated | guards the status page |
+| `DATABASE_PATH` | `/data/midwire.db` | ledger location |
+
+A probe pairs a write tool with the read that confirms it:
+
+```json
+[{"write_tool": "create_record",
+  "read_url": "https://api.example.com/records/{id}",
+  "id_field": "id",
+  "compare_fields": ["name", "amount"]}]
+```
 
 ## The design commitment
 
-The model does one narrow job: extracting asserted actions from agent text.
-Everything downstream is deterministic. A read-back probe either finds the row
-or it does not.
+No model judges correctness. Every check is deterministic — a read-back probe
+finds the row or it does not.
 
-This is deliberate. Calibrated model confidence fails out-of-distribution, and
-a wrong tool result is by definition out of distribution. Three independent
-research passes flagged this. A model judging correctness would put the sensor
-back inside the loop it is supposed to close, so the architecture asks the
-world instead.
+Calibrated model confidence fails out-of-distribution, and a wrong tool result
+is by definition out of distribution. A model judging correctness would put the
+sensor back inside the loop it exists to close, so midwire asks the world
+instead.
+
+Annotate is the default. False positives are what get this class of tool
+uninstalled, so blocking is opt-in, globally or per tool.
+
+Midwire fails open. A verifier that breaks your agent when a probe endpoint is
+down is worse than the bug it prevents. Tools that move money can opt into
+failing closed.
+
+## What it misses
+
+Two failures need claim extraction, which needs a model and access to agent
+text that the MCP boundary never sees:
+
+- An action claimed with no call emitted
+- A write that succeeded while the agent misreported what it did
+
+`just verify` reports both as known gaps.
 
 ## Honest position
 
 This is category creation. Nobody names this bug class in organic discussion,
-and the adjacent open-source attempt drew four upvotes. The pain is real in the
-few places it surfaces and nearly invisible in aggregate.
+and the nearest open-source attempt drew four upvotes on Reddit. The pain is
+real in the few places it surfaces and nearly invisible in aggregate.
 
 The open question that decides everything: do read-back probes catch anything
-real in a live agent, or does a mock world only catch mock bugs.
+in a live agent, or does a mock world only catch mock bugs. If you deploy this
+and it finds something real, that is worth an issue.
 
-## Status
-
-Design complete, nothing built. See
-[the design doc](docs/superpowers/specs/2026-09-22-midwire-design.md).
-
-Next step is the mock world and the deterministic checks, which answer the open
-question in a weekend.
+## Develop
 
 ```
-just verify
+just test        # 42 tests
+just mockworld   # a service that fails the way real ones do
+just verify      # five scripted turns, ground truth known
 ```
+
