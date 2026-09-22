@@ -4,10 +4,15 @@ default:
 sync:
     uv sync
 
-# Scripted agent runs against a mock world where ground truth is known.
-# Answers open question 1: do read-back probes catch anything real.
-verify *ARGS:
-    uv run scripts/run_scenarios.py {{ARGS}}
-
 test:
     uv run pytest -q
+
+# A world that fails the way real ones do. Leave running for `just verify`.
+mockworld:
+    MIDWIRE_MOCK_DB=/tmp/midwire-mock.sqlite \
+    uv run uvicorn midwire.mockworld:app --port 8787 --log-level warning
+
+# Five scripted turns against the mock world. Two are expected to miss: they
+# need claim extraction, which the MCP boundary cannot reach.
+verify:
+    uv run scripts/run_scenarios.py
