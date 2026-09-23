@@ -16,6 +16,10 @@ mockworld:
 verify:
     uv run scripts/run_scenarios.py
 
+# Push TEMPLATE.md to the Railway template. CI runs this on every change.
+publish-template:
+    scripts/publish_template.sh
+
 # A real Claude Code agent through midwire over MCP. Starts its own servers,
 # stop `just mockworld` first. Spends Claude usage.
 live:

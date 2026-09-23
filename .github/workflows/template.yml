@@ -1,0 +1,17 @@
+name: Publish Railway template overview
+
+on:
+  push:
+    branches: [main]
+    paths: [TEMPLATE.md, scripts/publish_template.sh]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install -g @railway/cli
+      - run: scripts/publish_template.sh
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
