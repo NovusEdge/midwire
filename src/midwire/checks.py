@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import httpx
 
@@ -9,7 +10,16 @@ from midwire.models import Finding, Probe, ToolCall
 __all__ = ["Dedupe", "Probe", "check_claims", "run_probe"]
 
 
-def check_claims(claimed: list[str], called: list[str]) -> list[Finding]:
+def _served_name(name: str, served: set[str]) -> str | None:
+    # Hosts prefix MCP tool names with the server alias the user chose, as in
+    # Claude Code's mcp__<alias>__<tool>, so the alias cannot be known here.
+    if name in served:
+        return name
+    return next((t for t in served if name.endswith(f"__{t}")), None)
+
+
+def check_claims(claimed: list[str], called: list[str],
+                 served: set[str]) -> list[Finding]:
     """Tools the agent says it used against the tools it actually called.
 
     The proxy sees calls, never the agent's prose, so an action claimed with
@@ -17,14 +27,18 @@ def check_claims(claimed: list[str], called: list[str]) -> list[Finding]:
     own tool names turns that into an exact set comparison, which needs no
     model and cannot drift.
 
+    Only tools midwire serves are checked. Agents also report the host's own
+    tools, which never pass through midwire and would all read as fabricated.
+
     This catches an agent that believes it acted. An agent that fabricates and
     also stays silent reaches no hook at all, and nothing inside MCP sees it.
     """
     actual = set(called)
+    resolved = (_served_name(name, served) for name in claimed)
     return [
         Finding(kind="claim_without_call", tool=tool,
                 detail=f"agent reported using {tool}, no such call this turn")
-        for tool in dict.fromkeys(claimed) if tool not in actual
+        for tool in dict.fromkeys(resolved) if tool and tool not in actual
     ]
 
 
@@ -34,18 +48,27 @@ def _fingerprint(call: ToolCall) -> str:
 
 
 class Dedupe:
-    """Catches the same non-idempotent write emitted twice in one turn."""
+    """Catches the same non-idempotent write emitted twice in one turn.
 
-    def __init__(self) -> None:
-        self._seen: set[str] = set()
+    Most agents never close a turn, and protocol 2026-07-28 has no sessions,
+    so the window also expires after `window_s`. Without that, two unrelated
+    tasks hours apart that write the same thing read as a duplicate.
+    """
 
-    def check(self, call: ToolCall) -> Finding | None:
+    def __init__(self, window_s: float = 120) -> None:
+        self.window_s = window_s
+        self._seen: dict[str, float] = {}
+
+    def check(self, call: ToolCall, now: float | None = None) -> Finding | None:
+        now = time.monotonic() if now is None else now
+        self._seen = {fp: t for fp, t in self._seen.items()
+                      if now - t < self.window_s}
         fp = _fingerprint(call)
         if fp in self._seen:
             return Finding(kind="duplicate_write", tool=call.tool,
                            detail=f"{call.tool} already called with these arguments "
                                   "in this turn")
-        self._seen.add(fp)
+        self._seen[fp] = now
         return None
 
     def reset(self) -> None:

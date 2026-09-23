@@ -87,7 +87,8 @@ async def run(scenario: Scenario, ledger: Ledger,
             claim_call = ToolCall(tool="midwire_report",
                                   args={"tools_used": scenario.claims})
             claim_id = ledger.record(turn, claim_call)
-            for finding in check_claims(scenario.claims, called):
+            for finding in check_claims(scenario.claims, called,
+                                        {"create_record"}):
                 findings.append(finding)
                 ledger.record_finding(claim_id, finding)
 

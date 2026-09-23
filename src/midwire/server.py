@@ -13,7 +13,9 @@ import os
 from collections import OrderedDict
 from pathlib import Path
 
-from fastmcp import FastMCP
+from fastmcp import Client, FastMCP
+from fastmcp.client.transports import StreamableHttpTransport
+from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.providers import ProxyProvider
 from fastmcp.tools.base import ToolResult
@@ -32,6 +34,7 @@ class Config(BaseModel):
     probe_timeout_ms: int = 500
     fail_closed_tools: list[str] = Field(default_factory=list)
     probes: list[Probe] = Field(default_factory=list)
+    dedupe_window_s: float = 120
     database_path: Path = Path("/data/midwire.db")
 
     @classmethod
@@ -45,6 +48,7 @@ class Config(BaseModel):
             fail_closed_tools=Policy.parse_tools(
                 env.get("MIDWIRE_FAIL_CLOSED_TOOLS", "")),
             probes=[Probe(**p) for p in json.loads(env.get("MIDWIRE_PROBES") or "[]")],
+            dedupe_window_s=float(env.get("MIDWIRE_DEDUPE_WINDOW_S") or 120),
             database_path=Path(env.get("DATABASE_PATH", "/data/midwire.db")),
         )
 
@@ -57,13 +61,17 @@ class Session:
     """One connected agent.
 
     MCP has no turn boundary, so midwire_report supplies one: each report
-    closes the turn it checks. The dedupe window stays the whole connection,
-    so a long-lived agent gets a wider window than ideal.
+    closes the turn it checks.
     """
 
-    def __init__(self, ledger: Ledger) -> None:
-        self.dedupe = Dedupe()
+    def __init__(self, ledger: Ledger, dedupe_window_s: float) -> None:
+        self.ledger = ledger
+        self.dedupe = Dedupe(dedupe_window_s)
         self.turn = ledger.begin_turn()
+
+    def close_turn(self) -> None:
+        self.dedupe.reset()
+        self.turn = self.ledger.begin_turn()
 
 
 # Past this many live sessions the oldest one is dropped. A dropped session
@@ -81,16 +89,22 @@ class MidwireMiddleware(Middleware):
         self.sessions: OrderedDict[str, Session] = OrderedDict()
 
     def session(self, context: MiddlewareContext) -> Session:
-        # One middleware serves every client. Without a key per client, one
-        # agent's report would be checked against another agent's calls.
-        fastmcp_context = getattr(context, "fastmcp_context", None)
-        key = fastmcp_context.session_id if fastmcp_context else ""
+        # One middleware serves every client, so a client that sends a session
+        # id gets its own turns. Protocol 2026-07-28 dropped sessions, and
+        # FastMCP's Context.session_id then invents a fresh id per request.
+        # Clients without the header share one turn, so one deployment should
+        # serve one agent.
+        key = get_http_headers(include={"mcp-session-id"}).get("mcp-session-id", "")
         if key not in self.sessions:
-            self.sessions[key] = Session(self.ledger)
+            self.sessions[key] = Session(self.ledger, self.config.dedupe_window_s)
             if len(self.sessions) > MAX_SESSIONS:
                 self.sessions.popitem(last=False)
         self.sessions.move_to_end(key)
         return self.sessions[key]
+
+    async def served(self, context: MiddlewareContext) -> set[str]:
+        tools = await context.fastmcp_context.fastmcp.list_tools()
+        return {t.name for t in tools} - {REPORT_TOOL}
 
     async def on_call_tool(self, context: MiddlewareContext,
                            call_next) -> ToolResult:
@@ -111,8 +125,8 @@ class MidwireMiddleware(Middleware):
             called = [c.tool for c in self.ledger.calls(session.turn)
                       if c.tool != REPORT_TOOL]
             findings.extend(check_claims(call.args.get("tools_used") or [],
-                                         called))
-            session.turn = self.ledger.begin_turn()
+                                         called, await self.served(context)))
+            session.close_turn()
         # An agent that used the same tools twice sends identical reports, and
         # a report writes nothing, so it never counts as a duplicate write.
         elif duplicate := session.dedupe.check(call):
@@ -136,8 +150,14 @@ class MidwireMiddleware(Middleware):
 
 
 REPORT_INSTRUCTIONS = """Call once at the end of every turn in which you used
-any tool, passing the exact names of the tools you used. Verification of your
-own account of the turn depends on it."""
+any tool from this server, passing the exact names of the tools from this
+server that you used. Verification of your own account of the turn depends
+on it."""
+
+
+def upstream_client(config: Config) -> Client:
+    return Client(StreamableHttpTransport(
+        config.upstream_url, headers=config.upstream_headers or None))
 
 
 def build(config: Config | None = None) -> FastMCP:
@@ -145,14 +165,10 @@ def build(config: Config | None = None) -> FastMCP:
     ledger = Ledger(config.database_path)
     middleware = MidwireMiddleware(config, ledger)
 
-    def client_factory():
-        from fastmcp import Client
-        return Client(config.upstream_url, headers=config.upstream_headers or None)
-
     server = FastMCP(
         name="midwire",
         instructions="Verifies that write tools actually changed the world.",
-        providers=[ProxyProvider(client_factory)],
+        providers=[ProxyProvider(lambda: upstream_client(config))],
         middleware=[middleware],
     )
 

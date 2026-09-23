@@ -43,6 +43,12 @@ class TestDedupe:
         d.reset()
         assert d.check(call("create_record", name="a")) is None
 
+    def test_a_repeat_after_the_window_is_not_a_duplicate(self):
+        d = Dedupe(window_s=60)
+        d.check(call("create_record", name="a"), now=0)
+        assert d.check(call("create_record", name="a"), now=59) is not None
+        assert d.check(call("create_record", name="a"), now=200) is None
+
 
 @pytest.mark.anyio
 class TestProbe:
@@ -113,26 +119,41 @@ class TestFindingSeverity:
             assert Finding(kind=kind, tool="t", detail="d").severity is Severity.INFO
 
 
+SERVED = {"create_record", "read_record", "a", "b", "c"}
+
+
 class TestCheckClaims:
     def test_a_claim_with_a_matching_call_passes(self):
-        assert check_claims(["create_record"], ["create_record"]) == []
+        assert check_claims(["create_record"], ["create_record"], SERVED) == []
 
     def test_a_claim_with_no_call_behind_it_is_caught(self):
-        findings = check_claims(["create_record"], ["read_record"])
+        findings = check_claims(["create_record"], ["read_record"], SERVED)
         assert [f.kind for f in findings] == ["claim_without_call"]
         assert findings[0].tool == "create_record"
 
     def test_calling_more_than_claimed_is_not_a_finding(self):
         # Extra calls are the agent doing work it did not mention, which is
         # noise rather than a lie about the world.
-        assert check_claims(["a"], ["a", "b", "c"]) == []
+        assert check_claims(["a"], ["a", "b", "c"], SERVED) == []
 
     def test_a_repeated_claim_reports_once(self):
-        findings = check_claims(["a", "a", "a"], [])
+        findings = check_claims(["a", "a", "a"], [], SERVED)
         assert len(findings) == 1
 
     def test_claiming_nothing_passes(self):
-        assert check_claims([], ["a"]) == []
+        assert check_claims([], ["a"], SERVED) == []
+
+    def test_a_host_tool_is_ignored(self):
+        # The host's own tools never pass through midwire, so a claim of one
+        # has nothing to compare against.
+        assert check_claims(["ToolSearch", "Bash"], [], SERVED) == []
+
+    def test_a_host_prefixed_name_matches_the_served_tool(self):
+        # Claude Code calls this tool mcp__midwire__create_record.
+        assert check_claims(["mcp__midwire__create_record"], ["create_record"],
+                            SERVED) == []
+        findings = check_claims(["mcp__midwire__create_record"], [], SERVED)
+        assert [f.tool for f in findings] == ["create_record"]
 
     def test_claim_without_call_blocks(self):
         assert Finding(kind="claim_without_call", tool="t",

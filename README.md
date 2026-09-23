@@ -79,6 +79,7 @@ duplicate detection still work.
 | `MIDWIRE_PROBE_TIMEOUT_MS` | `500` | past this, fail open and count it |
 | `MIDWIRE_FAIL_CLOSED_TOOLS` | empty | tools that block instead, comma separated |
 | `MIDWIRE_PROBES` | `[]` | write-to-read tool pairs, JSON |
+| `MIDWIRE_DEDUPE_WINDOW_S` | `120` | how long an identical write counts as a duplicate |
 | `MIDWIRE_ADMIN_TOKEN` | generated | guards the status page |
 | `DATABASE_PATH` | `/data/midwire.db` | ledger location |
 
@@ -132,8 +133,9 @@ and it finds something real, that is worth an issue.
 ## Develop
 
 ```
-just test        # 48 tests
+just test        # 59 tests
 just mockworld   # a service that fails the way real ones do
 just verify      # six scripted turns, ground truth known
+just live        # a real Claude Code agent through midwire
 ```
 

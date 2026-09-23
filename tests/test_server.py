@@ -7,7 +7,7 @@ from fastmcp.tools.base import ToolResult
 
 from midwire.ledger import Ledger
 from midwire.models import Probe
-from midwire.server import Blocked, Config, MidwireMiddleware
+from midwire.server import Blocked, Config, MidwireMiddleware, upstream_client
 
 
 class FakeMessage:
@@ -16,19 +16,37 @@ class FakeMessage:
         self.arguments = arguments
 
 
-class FakeSession:
-    def __init__(self, session_id):
-        self.session_id = session_id
+class FakeTool:
+    def __init__(self, name):
+        self.name = name
+
+
+class FakeServer:
+    async def list_tools(self):
+        return [FakeTool(n) for n in ("search", "create_record", "send_email")]
+
+
+class FakeFastMCPContext:
+    fastmcp = FakeServer()
 
 
 class FakeContext:
-    def __init__(self, name, arguments, session="s1"):
+    def __init__(self, name, arguments):
         self.message = FakeMessage(name, arguments)
-        self.fastmcp_context = FakeSession(session)
+        self.fastmcp_context = FakeFastMCPContext()
 
 
-def report(tools, session="s1"):
-    return FakeContext("midwire_report", {"tools_used": tools}, session)
+def report(tools):
+    return FakeContext("midwire_report", {"tools_used": tools})
+
+
+@pytest.fixture
+def session_header(monkeypatch):
+    """Sets the mcp-session-id header the next calls arrive with."""
+    def use(session_id):
+        monkeypatch.setattr("midwire.server.get_http_headers",
+                            lambda include=None: {"mcp-session-id": session_id})
+    return use
 
 
 def kinds(result):
@@ -131,11 +149,23 @@ async def test_report_checks_only_calls_since_the_last_report(middleware):
     assert kinds(result) == ["claim_without_call"]
 
 
-async def test_report_ignores_calls_from_another_session(middleware):
-    await middleware.on_call_tool(FakeContext("search", {"q": "x"}, "other"),
+async def test_report_ignores_calls_from_another_session(middleware,
+                                                         session_header):
+    session_header("other")
+    await middleware.on_call_tool(FakeContext("search", {"q": "x"}),
                                   upstream({"hits": 3}))
+    session_header("mine")
     result = await middleware.on_call_tool(report(["search"]), upstream({}))
     assert kinds(result) == ["claim_without_call"]
+
+
+async def test_calls_without_a_session_header_share_a_turn(middleware):
+    # Protocol 2026-07-28 clients send no session id. Their calls must still
+    # meet the report that follows them.
+    await middleware.on_call_tool(FakeContext("search", {"q": "x"}),
+                                  upstream({"hits": 3}))
+    result = await middleware.on_call_tool(report(["search"]), upstream({}))
+    assert kinds(result) == []
 
 
 async def test_report_matching_the_turn_passes(middleware):
@@ -152,6 +182,12 @@ async def test_turn_without_report_is_counted(middleware):
     await middleware.on_call_tool(FakeContext("search", {"q": "y"}),
                                   upstream({"hits": 1}))
     assert middleware.ledger.stats().unreported == 1
+
+
+def test_upstream_client_carries_headers(config):
+    config.upstream_headers = {"Authorization": "Bearer t"}
+    client = upstream_client(config)
+    assert client.transport.headers == {"Authorization": "Bearer t"}
 
 
 class TestConfig:
