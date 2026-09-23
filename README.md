@@ -45,8 +45,10 @@ Three failures leave the loop open:
 - The same non-idempotent write is emitted twice
 
 Midwire keeps a ledger of every tool call, fires a read-back probe after each
-write, and detects duplicate writes. v1 catches the second and third failures
-above. The first needs claim extraction and is not built.
+write, and detects duplicate writes. For the first failure, midwire adds a
+`midwire_report` tool. The agent calls it at the end of a turn with the names
+of the tools it used, and midwire flags any name with no matching call in the
+ledger.
 
 ## Deploy
 
@@ -108,13 +110,14 @@ failing closed.
 
 ## What it misses
 
-Two failures need claim extraction, which needs a model and access to agent
+Midwire only runs when the agent calls a tool. Two failures happen in agent
 text that the MCP boundary never sees:
 
-- An action claimed with no call emitted
-- A write that succeeded while the agent misreported what it did
+- The agent fabricates an action and never calls `midwire_report`
+- A write succeeds and the agent misreports what it wrote
 
-`just verify` reports both as known gaps.
+Catching either needs the host to hand over the agent's text, which is outside
+MCP.
 
 ## Honest position
 
@@ -129,8 +132,8 @@ and it finds something real, that is worth an issue.
 ## Develop
 
 ```
-just test        # 42 tests
+just test        # 48 tests
 just mockworld   # a service that fails the way real ones do
-just verify      # five scripted turns, ground truth known
+just verify      # six scripted turns, ground truth known
 ```
 

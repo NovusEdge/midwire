@@ -12,7 +12,6 @@ mockworld:
     MIDWIRE_MOCK_DB=/tmp/midwire-mock.sqlite \
     uv run uvicorn midwire.mockworld:app --port 8787 --log-level warning
 
-# Five scripted turns against the mock world. Two are expected to miss: they
-# need claim extraction, which the MCP boundary cannot reach.
+# Six scripted turns against the mock world, each with known ground truth.
 verify:
     uv run scripts/run_scenarios.py

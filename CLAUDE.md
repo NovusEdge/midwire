@@ -20,9 +20,7 @@ endpoint is down is worse than the bug it prevents. Fail-closed is opt-in per
 tool, for writes that move money or mutate durable state.
 
 **Annotate before blocking.** False positives are what get this class of tool
-uninstalled. Claim extraction ships in annotate-only mode.
-
-**Annotate before blocking.** Claim findings annotate like every other kind.
+uninstalled. Claim findings annotate like every other kind.
 Blocking a turn because an agent forgot to declare a tool would be the fastest
 way to get midwire removed.
 
