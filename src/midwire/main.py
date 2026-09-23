@@ -18,9 +18,11 @@ from midwire.server import build as build_mcp
 
 
 def build() -> Starlette:
-    mcp = build_mcp()
-    return Starlette(routes=[
-        Mount("/mcp", app=mcp.http_app(path="/")),
+    mcp = build_mcp().http_app(path="/")
+    # A mounted app's lifespan never runs, and the MCP session manager starts
+    # in that lifespan. Without it, every MCP request fails with a 500.
+    return Starlette(lifespan=mcp.lifespan, routes=[
+        Mount("/mcp", app=mcp),
         Mount("/", app=status.build()),
     ])
 
