@@ -15,3 +15,8 @@ mockworld:
 # Six scripted turns against the mock world, each with known ground truth.
 verify:
     uv run scripts/run_scenarios.py
+
+# A real Claude Code agent through midwire over MCP. Starts its own servers,
+# stop `just mockworld` first. Spends Claude usage.
+live:
+    uv run scripts/live_agent.py
