@@ -51,6 +51,7 @@ prevents.
 ### Deployment Dependencies
 
 - [midwire source](https://github.com/NovusEdge/midwire)
+- [Setup guide](https://github.com/NovusEdge/midwire/blob/main/docs/railway.md)
 - [Model Context Protocol](https://modelcontextprotocol.io)
 
 Set `MIDWIRE_UPSTREAM_URL` to the MCP server you want wrapped. Everything else

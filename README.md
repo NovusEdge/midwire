@@ -54,6 +54,9 @@ ledger.
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/midwire)
 
+[docs/railway.md](docs/railway.md) walks through a template deploy: upstream
+auth, connecting an agent, probes, and reading findings.
+
 ## Use it
 
 Point your agent at midwire instead of the server it currently uses. Midwire
@@ -82,7 +85,7 @@ duplicate detection still work.
 | `MIDWIRE_FAIL_CLOSED_TOOLS` | empty | tools that block instead, comma separated |
 | `MIDWIRE_PROBES` | `[]` | write-to-read tool pairs, JSON |
 | `MIDWIRE_DEDUPE_WINDOW_S` | `120` | how long an identical write counts as a duplicate |
-| `MIDWIRE_ADMIN_TOKEN` | generated | guards the status page |
+| `MIDWIRE_ADMIN_TOKEN` | empty | guards the status page; empty leaves it open |
 | `DATABASE_PATH` | `/data/midwire.db` | ledger location |
 
 A probe pairs a write tool with the read that confirms it:
@@ -135,7 +138,7 @@ and it finds something real, that is worth an issue.
 ## Develop
 
 ```
-just test        # 59 tests
+just test        # 66 tests
 just mockworld   # a service that fails the way real ones do
 just verify      # six scripted turns, ground truth known
 just live        # a real Claude Code agent through midwire
