@@ -149,7 +149,7 @@ class MidwireMiddleware(Middleware):
         # a report writes nothing, so it never counts as a duplicate write.
         elif duplicate := session.dedupe.check(call):
             findings.append(duplicate)
-        if probe := self.probes.get(call.tool):
+        if (probe := self.probes.get(call.tool)) and not result.is_error:
             if finding := await run_probe(probe, call,
                                           self.config.probe_timeout_ms):
                 findings.append(finding)

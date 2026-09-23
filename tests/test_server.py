@@ -237,6 +237,18 @@ async def test_a_json_text_result_is_probed(middleware):
     assert "returns 404" in text(result)
 
 
+async def test_a_failed_write_is_not_probed(middleware):
+    # GitHub answers a refused write with an error result and no url, which
+    # would read as a misconfigured probe.
+    async def call_next(_c):
+        return ToolResult(content=[TextContent(type="text", text="403")],
+                          is_error=True)
+
+    result = await middleware.on_call_tool(
+        FakeContext("create_record", {"name": "a"}), call_next)
+    assert kinds(result) == []
+
+
 def test_upstream_client_carries_headers(config):
     config.upstream_headers = {"Authorization": "Bearer t"}
     client = upstream_client(config)
