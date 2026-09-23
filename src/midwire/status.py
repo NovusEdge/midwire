@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from html import escape
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -48,7 +49,10 @@ td {{ padding:.6rem .75rem .6rem 0; border-bottom:1px solid var(--line);
   <div class="stat"><b>{turns}</b><span>turns</span></div>
   <div class="stat"><b>{calls}</b><span>calls</span></div>
   <div class="stat"><b>{findings}</b><span>findings</span></div>
+  <div class="stat"><b>{unreported}</b><span>turns without a report</span></div>
 </div>
+<p class="sub">A turn without a report is still in progress, or its agent never
+called midwire_report, so its claims went unchecked.</p>
 {body}
 </main></body></html>"""
 
@@ -77,14 +81,15 @@ def build() -> FastAPI:
         if token and not secrets.compare_digest(supplied, token):
             raise HTTPException(401, "bad or missing token")
 
+        # Tool names and details come from the agent, so they get escaped.
         findings = ledger.findings(limit=200)
         rows = "".join(
-            f'<tr><td class="kind">{f.kind}</td><td>{f.tool}</td>'
-            f"<td>{f.detail}</td></tr>" for f in findings)
+            f'<tr><td class="kind">{escape(f.kind)}</td><td>{escape(f.tool)}</td>'
+            f"<td>{escape(f.detail)}</td></tr>" for f in findings)
         stats = ledger.stats()
         return PAGE.format(
-            upstream=upstream, turns=stats.turns, calls=stats.calls,
-            findings=stats.findings,
+            upstream=escape(upstream), turns=stats.turns, calls=stats.calls,
+            findings=stats.findings, unreported=stats.unreported,
             body=TABLE.format(rows=rows) if findings else EMPTY)
 
     return app

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from midwire.models import Finding, ToolCall
+from midwire.models import REPORT_TOOL, Finding, ToolCall
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS calls (
@@ -34,6 +34,7 @@ class Stats(BaseModel):
     turns: int
     calls: int
     findings: int
+    unreported: int
 
 
 class Ledger:
@@ -94,4 +95,7 @@ class Ledger:
                         .fetchone()["c"],
                 calls=db.execute("SELECT COUNT(*) c FROM calls").fetchone()["c"],
                 findings=db.execute("SELECT COUNT(*) c FROM findings")
-                           .fetchone()["c"])
+                           .fetchone()["c"],
+                unreported=db.execute(
+                    "SELECT COUNT(*) c FROM (SELECT turn FROM calls GROUP BY turn"
+                    " HAVING SUM(tool = ?) = 0)", (REPORT_TOOL,)).fetchone()["c"])

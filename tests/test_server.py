@@ -16,9 +16,23 @@ class FakeMessage:
         self.arguments = arguments
 
 
+class FakeSession:
+    def __init__(self, session_id):
+        self.session_id = session_id
+
+
 class FakeContext:
-    def __init__(self, name, arguments):
+    def __init__(self, name, arguments, session="s1"):
         self.message = FakeMessage(name, arguments)
+        self.fastmcp_context = FakeSession(session)
+
+
+def report(tools, session="s1"):
+    return FakeContext("midwire_report", {"tools_used": tools}, session)
+
+
+def kinds(result):
+    return [f["kind"] for f in (result.meta or {}).get("midwire", [])]
 
 
 def upstream(structured):
@@ -106,6 +120,38 @@ async def test_annotation_preserves_existing_meta(middleware):
         FakeContext("create_record", {"name": "a"}), call_next)
     assert result.meta["upstream"] == "keep"
     assert "midwire" in result.meta
+
+
+async def test_report_checks_only_calls_since_the_last_report(middleware):
+    await middleware.on_call_tool(FakeContext("search", {"q": "x"}),
+                                  upstream({"hits": 3}))
+    await middleware.on_call_tool(report(["search"]), upstream({}))
+    # The earlier search belongs to a closed turn and cannot back this claim.
+    result = await middleware.on_call_tool(report(["search"]), upstream({}))
+    assert kinds(result) == ["claim_without_call"]
+
+
+async def test_report_ignores_calls_from_another_session(middleware):
+    await middleware.on_call_tool(FakeContext("search", {"q": "x"}, "other"),
+                                  upstream({"hits": 3}))
+    result = await middleware.on_call_tool(report(["search"]), upstream({}))
+    assert kinds(result) == ["claim_without_call"]
+
+
+async def test_report_matching_the_turn_passes(middleware):
+    await middleware.on_call_tool(FakeContext("search", {"q": "x"}),
+                                  upstream({"hits": 3}))
+    result = await middleware.on_call_tool(report(["search"]), upstream({}))
+    assert kinds(result) == []
+
+
+async def test_turn_without_report_is_counted(middleware):
+    await middleware.on_call_tool(FakeContext("search", {"q": "x"}),
+                                  upstream({"hits": 3}))
+    await middleware.on_call_tool(report(["search"]), upstream({}))
+    await middleware.on_call_tool(FakeContext("search", {"q": "y"}),
+                                  upstream({"hits": 1}))
+    assert middleware.ledger.stats().unreported == 1
 
 
 class TestConfig:

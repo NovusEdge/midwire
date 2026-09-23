@@ -65,6 +65,15 @@ def test_counts_summarise_activity(ledger):
     assert stats.turns == 1
 
 
+def test_counts_turns_that_never_reported(ledger):
+    reported = ledger.begin_turn()
+    ledger.record(reported, ToolCall(tool="a"))
+    ledger.record(reported, ToolCall(tool="midwire_report"))
+    silent = ledger.begin_turn()
+    ledger.record(silent, ToolCall(tool="a"))
+    assert ledger.stats().unreported == 1
+
+
 def test_result_that_is_not_a_dict_round_trips(ledger):
     turn = ledger.begin_turn()
     ledger.record(turn, ToolCall(tool="list", result=["a", "b"]))

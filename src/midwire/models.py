@@ -16,6 +16,10 @@ class Severity(enum.StrEnum):
 # is worse than the bug being prevented.
 NON_BLOCKING = frozenset({"probe_unavailable", "probe_misconfigured"})
 
+# The agent calls this to close a turn. A turn with calls and no report row is
+# one the agent never accounted for, or one still in progress.
+REPORT_TOOL = "midwire_report"
+
 
 class ToolCall(BaseModel):
     tool: str
