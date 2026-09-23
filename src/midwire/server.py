@@ -18,7 +18,7 @@ from fastmcp.server.providers import ProxyProvider
 from fastmcp.tools.base import ToolResult
 from pydantic import BaseModel, Field
 
-from midwire.checks import Dedupe, run_probe
+from midwire.checks import Dedupe, check_claims, run_probe
 from midwire.ledger import Ledger
 from midwire.models import Finding, Probe, ToolCall
 from midwire.policy import Action, Policy
@@ -46,6 +46,9 @@ class Config(BaseModel):
             probes=[Probe(**p) for p in json.loads(env.get("MIDWIRE_PROBES") or "[]")],
             database_path=Path(env.get("DATABASE_PATH", "/data/midwire.db")),
         )
+
+
+REPORT_TOOL = "midwire_report"
 
 
 class Blocked(Exception):
@@ -76,6 +79,13 @@ class MidwireMiddleware(Middleware):
         call_id = self.ledger.record(self.turn, call)
 
         findings: list[Finding] = []
+        if call.tool == REPORT_TOOL:
+            # Its own row is already in the ledger by now, and the agent never
+            # claims to have called it.
+            called = [c.tool for c in self.ledger.calls(self.turn)
+                      if c.tool != REPORT_TOOL]
+            findings.extend(check_claims(call.args.get("tools_used") or [],
+                                         called))
         if duplicate := self.dedupe.check(call):
             findings.append(duplicate)
         if probe := self.probes.get(call.tool):
@@ -96,17 +106,31 @@ class MidwireMiddleware(Middleware):
         return result
 
 
+REPORT_INSTRUCTIONS = """Call once at the end of every turn in which you used
+any tool, passing the exact names of the tools you used. Verification of your
+own account of the turn depends on it."""
+
+
 def build(config: Config | None = None) -> FastMCP:
     config = config or Config.from_env()
     ledger = Ledger(config.database_path)
+    middleware = MidwireMiddleware(config, ledger)
 
     def client_factory():
         from fastmcp import Client
         return Client(config.upstream_url, headers=config.upstream_headers or None)
 
-    return FastMCP(
+    server = FastMCP(
         name="midwire",
         instructions="Verifies that write tools actually changed the world.",
         providers=[ProxyProvider(client_factory)],
-        middleware=[MidwireMiddleware(config, ledger)],
+        middleware=[middleware],
     )
+
+    # A stub: the comparison happens in the middleware, where the call already
+    # has a ledger row to hang findings on and the policy already runs.
+    @server.tool(description=REPORT_INSTRUCTIONS)
+    def midwire_report(tools_used: list[str]) -> dict:
+        return {"reported": tools_used}
+
+    return server

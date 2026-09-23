@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from midwire.checks import Dedupe, Probe, run_probe
+from midwire.checks import Dedupe, Probe, check_claims, run_probe
 from midwire.models import Finding, Severity, ToolCall
 
 
@@ -111,3 +111,29 @@ class TestFindingSeverity:
     def test_probe_problems_do_not_block(self):
         for kind in ("probe_unavailable", "probe_misconfigured"):
             assert Finding(kind=kind, tool="t", detail="d").severity is Severity.INFO
+
+
+class TestCheckClaims:
+    def test_a_claim_with_a_matching_call_passes(self):
+        assert check_claims(["create_record"], ["create_record"]) == []
+
+    def test_a_claim_with_no_call_behind_it_is_caught(self):
+        findings = check_claims(["create_record"], ["read_record"])
+        assert [f.kind for f in findings] == ["claim_without_call"]
+        assert findings[0].tool == "create_record"
+
+    def test_calling_more_than_claimed_is_not_a_finding(self):
+        # Extra calls are the agent doing work it did not mention, which is
+        # noise rather than a lie about the world.
+        assert check_claims(["a"], ["a", "b", "c"]) == []
+
+    def test_a_repeated_claim_reports_once(self):
+        findings = check_claims(["a", "a", "a"], [])
+        assert len(findings) == 1
+
+    def test_claiming_nothing_passes(self):
+        assert check_claims([], ["a"]) == []
+
+    def test_claim_without_call_blocks(self):
+        assert Finding(kind="claim_without_call", tool="t",
+                       detail="d").severity is Severity.ERROR

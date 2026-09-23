@@ -1,13 +1,15 @@
-"""Five scripted agent turns against a world where the truth is known.
+"""Scripted agent turns against a world where the truth is known.
 
 Answers the question the design is blocked on: do read-back probes catch
 anything, and what does the deterministic half miss.
 
-Two scenarios are expected to fail. They need claim extraction, which needs a
-model and access to agent text that the MCP boundary never sees. They are here
-to measure the gap, not to pass. A future session reading two red rows as a bug
-will "fix" them by putting a model back into the correctness path, which the
-whole design exists to avoid.
+The claim scenario was expected to fail for as long as claim extraction meant
+parsing agent prose. It does not. The agent declares the tool names it used and
+midwire compares that set against the ledger, so the check stays deterministic
+and no model enters the correctness path.
+
+One case remains out of reach from here: an agent that fabricates a write and
+also declares nothing reaches no hook at all.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from midwire.checks import Dedupe, run_probe
+from midwire.checks import Dedupe, check_claims, run_probe
 from midwire.ledger import Ledger
 from midwire.models import Finding, Probe, ToolCall
 from midwire.policy import Action, Policy
@@ -35,7 +37,7 @@ class Scenario(BaseModel):
     name: str
     fault: str
     writes: int
-    claims_extra_action: bool = False
+    claims: list[str] = []
     expect_caught: bool
     why: str = ""
 
@@ -50,8 +52,11 @@ SCENARIOS = [
     Scenario(name="read serves a stale copy", fault="stale_read", writes=1,
              expect_caught=True, why="read-back disagrees with what was written"),
     Scenario(name="action claimed, no call emitted", fault="none", writes=0,
-             claims_extra_action=True, expect_caught=False,
-             why="needs claim extraction; the MCP boundary never sees agent text"),
+             claims=["create_record"], expect_caught=True,
+             why="agent declares a tool the ledger has no call for"),
+    Scenario(name="action claimed and performed", fault="none", writes=1,
+             claims=["create_record"], expect_caught=False,
+             why="the declaration matches the ledger"),
 ]
 
 
@@ -76,6 +81,15 @@ async def run(scenario: Scenario, ledger: Ledger,
                 if finding:
                     findings.append(finding)
                     ledger.record_finding(call_id, finding)
+
+        if scenario.claims:
+            called = [c.tool for c in ledger.calls(turn)]
+            claim_call = ToolCall(tool="midwire_report",
+                                  args={"tools_used": scenario.claims})
+            claim_id = ledger.record(turn, claim_call)
+            for finding in check_claims(scenario.claims, called):
+                findings.append(finding)
+                ledger.record_finding(claim_id, finding)
 
         await client.post(f"{MOCK}/fault/none")
     return findings, policy.decide(findings)
@@ -109,10 +123,9 @@ async def main() -> int:
               f"{str(caught):>7} {action.name:>9}  {kinds}"
               f"{'' if ok else '   <- UNEXPECTED'}")
 
-    gaps = [s for s, c, _, _ in rows if not s.expect_caught and s.claims_extra_action]
     print(f"\n{expected}/{len(rows)} scenarios behaved as designed")
-    print(f"{len(gaps)} known gap(s) needing claim extraction: "
-          f"{', '.join(s.name for s in gaps)}")
+    print("out of reach from the MCP boundary: an agent that fabricates a "
+          "write and declares nothing reaches no hook at all")
 
     stats = ledger.stats()
     print(f"ledger: {stats.turns} turns, {stats.calls} calls, "

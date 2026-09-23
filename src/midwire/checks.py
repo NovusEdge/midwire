@@ -6,7 +6,26 @@ import httpx
 
 from midwire.models import Finding, Probe, ToolCall
 
-__all__ = ["Dedupe", "Probe", "run_probe"]
+__all__ = ["Dedupe", "Probe", "check_claims", "run_probe"]
+
+
+def check_claims(claimed: list[str], called: list[str]) -> list[Finding]:
+    """Tools the agent says it used against the tools it actually called.
+
+    The proxy sees calls, never the agent's prose, so an action claimed with
+    no call behind it is invisible from here. Asking the agent to declare its
+    own tool names turns that into an exact set comparison, which needs no
+    model and cannot drift.
+
+    This catches an agent that believes it acted. An agent that fabricates and
+    also stays silent reaches no hook at all, and nothing inside MCP sees it.
+    """
+    actual = set(called)
+    return [
+        Finding(kind="claim_without_call", tool=tool,
+                detail=f"agent reported using {tool}, no such call this turn")
+        for tool in dict.fromkeys(claimed) if tool not in actual
+    ]
 
 
 def _fingerprint(call: ToolCall) -> str:
