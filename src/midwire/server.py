@@ -54,6 +54,23 @@ class Config(BaseModel):
         )
 
 
+def payload(result: ToolResult) -> object:
+    """What the tool returned, for the ledger and the probe.
+
+    Many servers, GitHub's among them, return JSON as a text block and leave
+    structuredContent empty.
+    """
+    if result.structured_content is not None:
+        return result.structured_content
+    for block in result.content:
+        if isinstance(block, TextContent):
+            try:
+                return json.loads(block.text)
+            except ValueError:
+                continue
+    return None
+
+
 class Blocked(Exception):
     """Raised to stop a result reaching the agent."""
 
@@ -115,7 +132,7 @@ class MidwireMiddleware(Middleware):
         call = ToolCall(
             tool=context.message.name,
             args=dict(context.message.arguments or {}),
-            result=result.structured_content,
+            result=payload(result),
         )
         call_id = self.ledger.record(session.turn, call)
 

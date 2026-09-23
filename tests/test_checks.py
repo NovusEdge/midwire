@@ -75,6 +75,27 @@ class TestProbe:
         assert finding.kind == "write_not_found"
 
     @respx.mock
+    async def test_a_page_that_exists_confirms_a_write_without_json(self):
+        # GitHub's MCP server returns only an html url for a new issue.
+        respx.get("https://github.com/o/r/issues/1").mock(
+            return_value=httpx.Response(200, text="<html>issue</html>"))
+        probe = Probe(write_tool="issue_write", read_url="{url}", id_field="url")
+        c = ToolCall(tool="issue_write", args={"title": "t"},
+                     result={"url": "https://github.com/o/r/issues/1"})
+        assert await run_probe(probe, c, timeout_ms=500) is None
+
+    @respx.mock
+    async def test_a_non_json_readback_with_fields_to_compare_fails_open(self):
+        respx.get("http://svc/records/7").mock(
+            return_value=httpx.Response(200, text="<html>"))
+        probe = Probe(write_tool="create_record", read_url="http://svc/records/{id}",
+                      compare_fields=["name"])
+        c = ToolCall(tool="create_record", args={"name": "a"},
+                     result={"id": "7", "name": "a"})
+        finding = await run_probe(probe, c, timeout_ms=500)
+        assert finding.kind == "probe_misconfigured"
+
+    @respx.mock
     async def test_readback_disagreeing_with_the_write_is_caught(self):
         respx.get("http://svc/records/7").mock(
             return_value=httpx.Response(200, json={"id": "7", "name": "different"}))

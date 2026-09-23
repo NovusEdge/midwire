@@ -104,7 +104,16 @@ async def run_probe(probe: Probe, call: ToolCall, timeout_ms: int) -> Finding | 
         return Finding(kind="probe_unavailable", tool=call.tool,
                        detail=f"probe {url} returned {response.status_code}")
 
-    written = response.json()
+    if not probe.compare_fields:
+        return None
+    try:
+        written = response.json()
+    except ValueError:
+        written = None
+    if not isinstance(written, dict):
+        return Finding(
+            kind="probe_misconfigured", tool=call.tool,
+            detail=f"{url} returned no JSON object to compare fields against")
     for field in probe.compare_fields:
         if written.get(field) != result.get(field):
             return Finding(

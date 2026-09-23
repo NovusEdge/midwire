@@ -4,6 +4,7 @@ import httpx
 import pytest
 import respx
 from fastmcp.tools.base import ToolResult
+from mcp.types import TextContent
 
 from midwire.ledger import Ledger
 from midwire.models import Probe
@@ -220,6 +221,20 @@ async def test_a_clean_result_passes_through_untouched(middleware):
                                            upstream({"hits": 3}))
     assert result.structured_content == {"hits": 3}
     assert "midwire" not in text(result)
+
+
+@respx.mock
+async def test_a_json_text_result_is_probed(middleware):
+    # GitHub's MCP server returns JSON as text, with no structuredContent.
+    respx.get("http://svc/records/7").mock(return_value=httpx.Response(404))
+
+    async def call_next(_c):
+        return ToolResult(content=[TextContent(type="text", text='{"id": "7"}')])
+
+    result = await middleware.on_call_tool(
+        FakeContext("create_record", {"name": "a"}), call_next)
+    assert kinds(result) == ["write_not_found"]
+    assert "returns 404" in text(result)
 
 
 def test_upstream_client_carries_headers(config):
