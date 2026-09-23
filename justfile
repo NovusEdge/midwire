@@ -16,7 +16,8 @@ mockworld:
 verify:
     uv run scripts/run_scenarios.py
 
-# Push TEMPLATE.md to the Railway template. CI runs this on every change.
+# Push TEMPLATE.md to the Railway template. Railway never reads it from the
+# repo, so run this after every change to it.
 publish-template:
     scripts/publish_template.sh
 
