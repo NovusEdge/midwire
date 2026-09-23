@@ -63,8 +63,10 @@ registers that server's tools as its own and forwards every call.
 your agent  ->  midwire/mcp  ->  your MCP server
 ```
 
-Findings ride back in `ToolResult.meta.midwire`. A status page at `/` shows
-what the agent did and what read back wrong.
+A failed check comes back inside the tool result, as a `midwire` field in the
+structured content and as a text block, so the agent reads it and tells the
+user. Full findings also go in `ToolResult.meta.midwire`. A status page at `/`
+shows what the agent did and what read back wrong.
 
 ## Configure
 

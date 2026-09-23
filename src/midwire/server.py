@@ -19,11 +19,12 @@ from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.providers import ProxyProvider
 from fastmcp.tools.base import ToolResult
+from mcp.types import TextContent
 from pydantic import BaseModel, Field
 
 from midwire.checks import Dedupe, check_claims, run_probe
 from midwire.ledger import Ledger
-from midwire.models import REPORT_TOOL, Finding, Probe, ToolCall
+from midwire.models import REPORT_TOOL, Finding, Probe, Severity, ToolCall
 from midwire.policy import Action, Policy
 
 
@@ -146,8 +147,29 @@ class MidwireMiddleware(Middleware):
         if action is Action.ANNOTATE:
             result.meta = (result.meta or {}) | {
                 "midwire": [f.model_dump(mode="json") for f in findings]}
+
+        # Claude Code hands the model structuredContent alone and drops meta
+        # and text blocks, so notes go in both places the model might read.
+        # Notes state facts only: models treat an instruction inside a tool
+        # result as prompt injection. Probe outages stay in meta, since they
+        # are midwire's own failure and say nothing about the write.
+        notes = [f"midwire: {f.detail}" for f in findings
+                 if f.severity is Severity.ERROR]
+        if notes:
+            result.content = [*result.content,
+                              TextContent(type="text", text="\n".join(notes))]
+            if isinstance(result.structured_content, dict):
+                result.structured_content = result.structured_content | {
+                    "midwire": notes}
         return result
 
+
+# Hosts put server instructions in the system prompt, the one channel from
+# which a model accepts instructions from midwire.
+SERVER_INSTRUCTIONS = """Midwire checks that write tools changed what they
+report changing. A result may carry a "midwire" field naming a check that
+failed; tell the user about it. Before you answer the user in any turn where
+you used tools from this server, call midwire_report with their names."""
 
 REPORT_INSTRUCTIONS = """Call once at the end of every turn in which you used
 any tool from this server, passing the exact names of the tools from this
@@ -167,7 +189,7 @@ def build(config: Config | None = None) -> FastMCP:
 
     server = FastMCP(
         name="midwire",
-        instructions="Verifies that write tools actually changed the world.",
+        instructions=SERVER_INSTRUCTIONS,
         providers=[ProxyProvider(lambda: upstream_client(config))],
         middleware=[middleware],
     )

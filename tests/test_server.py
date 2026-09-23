@@ -53,6 +53,14 @@ def kinds(result):
     return [f["kind"] for f in (result.meta or {}).get("midwire", [])]
 
 
+def text(result):
+    return "\n".join(b.text for b in result.content if b.type == "text")
+
+
+def notes(result):
+    return "\n".join((result.structured_content or {}).get("midwire", []))
+
+
 def upstream(structured):
     async def call_next(_context):
         return ToolResult(structured_content=structured)
@@ -182,6 +190,36 @@ async def test_turn_without_report_is_counted(middleware):
     await middleware.on_call_tool(FakeContext("search", {"q": "y"}),
                                   upstream({"hits": 1}))
     assert middleware.ledger.stats().unreported == 1
+
+
+@respx.mock
+async def test_the_agent_reads_a_finding_in_the_result(middleware):
+    # Claude Code hands the model structuredContent only, and drops both meta
+    # and the text blocks. Hosts without structured output read the text.
+    respx.get("http://svc/records/7").mock(return_value=httpx.Response(404))
+    result = await middleware.on_call_tool(
+        FakeContext("create_record", {"name": "a"}), upstream({"id": "7"}))
+    assert result.structured_content["id"] == "7"
+    assert "returns 404" in notes(result)
+    assert "returns 404" in text(result)
+
+
+@respx.mock
+async def test_a_probe_outage_stays_out_of_the_result(middleware):
+    respx.get("http://svc/records/7").mock(side_effect=httpx.ConnectError("down"))
+    result = await middleware.on_call_tool(
+        FakeContext("create_record", {"name": "a"}), upstream({"id": "7"}))
+    assert kinds(result) == ["probe_unavailable"]
+    assert "probe" not in notes(result)
+
+
+async def test_a_clean_result_passes_through_untouched(middleware):
+    # An instruction in a tool result reads to the model as prompt injection,
+    # so a clean call must not gain a reminder.
+    result = await middleware.on_call_tool(FakeContext("search", {"q": "x"}),
+                                           upstream({"hits": 3}))
+    assert result.structured_content == {"hits": 3}
+    assert "midwire" not in text(result)
 
 
 def test_upstream_client_carries_headers(config):
